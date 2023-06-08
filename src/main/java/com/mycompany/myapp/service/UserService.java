@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheConfig;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,6 +42,7 @@ public class UserService {
     private final AuthorityRepository authorityRepository;
 
     private final CacheManager cacheManager;
+    public static final String userListCache = "userList";
 
     public UserService(
         UserRepository userRepository,
@@ -272,8 +275,11 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = userListCache, key = "#pageable.pageNumber")
     public Page<AdminUserDTO> getAllManagedUsers(Pageable pageable) {
-        return userRepository.findAll(pageable).map(AdminUserDTO::new);
+        log.error("Test cache users", pageable);
+        Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
+        return users;
     }
 
     @Transactional(readOnly = true)

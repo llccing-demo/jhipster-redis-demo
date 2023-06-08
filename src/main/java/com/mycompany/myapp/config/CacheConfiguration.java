@@ -1,5 +1,6 @@
 package com.mycompany.myapp.config;
 
+import com.mycompany.myapp.service.UserService;
 import java.net.URI;
 import java.util.concurrent.TimeUnit;
 import javax.cache.configuration.MutableConfiguration;
@@ -82,6 +83,7 @@ public class CacheConfiguration {
             createCache(cm, com.mycompany.myapp.domain.Authority.class.getName(), jcacheConfiguration);
             createCache(cm, com.mycompany.myapp.domain.User.class.getName() + ".authorities", jcacheConfiguration);
             // jhipster-needle-redis-add-entry
+            createCache(cm, UserService.userListCache, jcacheConfiguration);
         };
     }
 
