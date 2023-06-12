@@ -1,5 +1,6 @@
 package com.mycompany.myapp.service;
 
+import com.mycompany.myapp.config.CacheConfiguration;
 import com.mycompany.myapp.config.Constants;
 import com.mycompany.myapp.domain.Authority;
 import com.mycompany.myapp.domain.User;
@@ -12,9 +13,15 @@ import com.mycompany.myapp.service.dto.UserDTO;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.redisson.api.RBucket;
+import org.redisson.api.RList;
+import org.redisson.api.RedissonClient;
+import org.redisson.jcache.configuration.JCacheConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.Cacheable;
@@ -42,6 +49,10 @@ public class UserService {
     private final AuthorityRepository authorityRepository;
 
     private final CacheManager cacheManager;
+
+    @Autowired
+    private RedissonClient redissonClient;
+
     public static final String userListCache = "userList";
 
     public UserService(
@@ -275,12 +286,29 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = userListCache, key = "#pageable.pageNumber")
     public Page<AdminUserDTO> getAllManagedUsers(Pageable pageable) {
-        log.error("Test cache users", pageable);
+        RBucket<Object> bucket = redissonClient.getBucket("rocket");
+
+        if (bucket.isExists()) {
+            log.error("Test cache Redisson get ", pageable);
+            return (Page<AdminUserDTO>) bucket.get();
+        }
+
+        log.error("Test cache Redisson set again", pageable);
         Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
+        bucket.set(users);
+        // set expired time
+        //        bucket.set(users, 30, TimeUnit.SECONDS);
         return users;
     }
+
+    //    @Transactional(readOnly = true)
+    //    @Cacheable(cacheNames = userListCache, key = "#pageable.pageNumber")
+    //    public Page<AdminUserDTO> getAllManagedUsers(Pageable pageable) {
+    //        log.error("Test cache users", pageable);
+    //        Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
+    //        return users;
+    //    }
 
     @Transactional(readOnly = true)
     public Page<UserDTO> getAllPublicUsers(Pageable pageable) {

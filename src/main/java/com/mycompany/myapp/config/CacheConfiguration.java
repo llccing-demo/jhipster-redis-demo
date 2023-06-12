@@ -33,6 +33,13 @@ public class CacheConfiguration {
     private BuildProperties buildProperties;
 
     @Bean
+    public Redisson redisson() {
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://localhost:6379");
+        return (Redisson) Redisson.create(config);
+    }
+
+    @Bean
     public javax.cache.configuration.Configuration<Object, Object> jcacheConfiguration(JHipsterProperties jHipsterProperties) {
         MutableConfiguration<Object, Object> jcacheConfig = new MutableConfiguration<>();
 
