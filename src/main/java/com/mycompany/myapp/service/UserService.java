@@ -10,6 +10,7 @@ import com.mycompany.myapp.security.AuthoritiesConstants;
 import com.mycompany.myapp.security.SecurityUtils;
 import com.mycompany.myapp.service.dto.AdminUserDTO;
 import com.mycompany.myapp.service.dto.UserDTO;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -17,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.redisson.api.RBucket;
 import org.redisson.api.RList;
+import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.redisson.jcache.configuration.JCacheConfiguration;
 import org.slf4j.Logger;
@@ -27,6 +29,7 @@ import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -55,16 +58,20 @@ public class UserService {
 
     public static final String userListCache = "userList";
 
+    private final UserCacheService userCacheService;
+
     public UserService(
         UserRepository userRepository,
         PasswordEncoder passwordEncoder,
         AuthorityRepository authorityRepository,
-        CacheManager cacheManager
+        CacheManager cacheManager,
+        UserCacheService userCacheService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authorityRepository = authorityRepository;
         this.cacheManager = cacheManager;
+        this.userCacheService = userCacheService;
     }
 
     public Optional<User> activateRegistration(String key) {
@@ -287,21 +294,72 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public Page<AdminUserDTO> getAllManagedUsers(Pageable pageable) {
-        RBucket<Object> bucket = redissonClient.getBucket("rocket");
+        RMap<String, Object> rMap = redissonClient.getMap("rocketMap");
 
-        if (bucket.isExists()) {
+        if (rMap.containsKey("expired")) {
+            // convert object time to timestamp
+            long expired = (long) rMap.get("expired");
+            long now = System.currentTimeMillis();
+
+            String strDateFormat = "yyyy-MM-dd HH:mm:ss";
+            SimpleDateFormat sdf = new SimpleDateFormat(strDateFormat);
+            String expiredStr = sdf.format(expired);
+            String nowStr = sdf.format(now);
+            log.error("expired, now ");
+            log.error(expiredStr);
+            log.error(nowStr);
+
+            if (expired < now) {
+                log.error("Test cache Redisson expired ", pageable);
+                userCacheService.updateUserCache(pageable);
+            }
+
             log.error("Test cache Redisson get ", pageable);
-            return (Page<AdminUserDTO>) bucket.get();
+            return (Page<AdminUserDTO>) rMap.get("users");
+        } else {
+            log.error("Test cache Redisson set ", pageable);
+            rMap.put("expired", System.currentTimeMillis() + 30000);
+            Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
+            rMap.put("users", users);
+            return users;
         }
-
-        log.error("Test cache Redisson set again", pageable);
-        Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
-        bucket.set(users);
-        // set expired time
-        //        bucket.set(users, 30, TimeUnit.SECONDS);
-        return users;
     }
 
+    // This method is not works, maybe because call and becall in same class
+    //    @Async("taskExecutor")
+    //    public void updateUserCache(Pageable pageable) {
+    //        try {
+    //            log.error("update cache async");
+    //            RMap<String, Object> rMap = redissonClient.getMap("rocketMap");
+    //            Thread.sleep(4000);
+    //            long now = System.currentTimeMillis();
+    //            // add 1 minutes
+    //            rMap.put("expired", now + 60000*1);
+    //
+    //            Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
+    //            rMap.put("users", users);
+    //        } catch (InterruptedException e) {
+    //            e.printStackTrace();
+    //        }
+    //    }
+
+    //    @Transactional(readOnly = true)
+    //    public Page<AdminUserDTO> getAllManagedUsers(Pageable pageable) {
+    //        RBucket<Object> bucket = redissonClient.getBucket("rocket");
+    //
+    //        if (bucket.isExists()) {
+    //            log.error("Test cache Redisson get ", pageable);
+    //            return (Page<AdminUserDTO>) bucket.get();
+    //        }
+    //
+    //        log.error("Test cache Redisson set again", pageable);
+    //        Page<AdminUserDTO> users = userRepository.findAll(pageable).map(AdminUserDTO::new);
+    //        bucket.set(users);
+    //        // set expired time
+    //        //        bucket.set(users, 30, TimeUnit.SECONDS);
+    //        return users;
+    //    }
+    //
     //    @Transactional(readOnly = true)
     //    @Cacheable(cacheNames = userListCache, key = "#pageable.pageNumber")
     //    public Page<AdminUserDTO> getAllManagedUsers(Pageable pageable) {
@@ -343,6 +401,7 @@ public class UserService {
 
     /**
      * Gets a list of all the authorities.
+     *
      * @return a list of all the authorities.
      */
     @Transactional(readOnly = true)
